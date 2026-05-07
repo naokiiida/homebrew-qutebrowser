@@ -11,8 +11,13 @@ The upstream cask is also [scheduled for deprecation on 2026-09-01](https://gith
 ## Install
 
 ```sh
-brew tap naokiiida/qutebrowser
 brew install naokiiida/qutebrowser/qutebrowser
+```
+
+If you have the upstream cask installed, uninstall it first:
+
+```sh
+brew uninstall --cask qutebrowser
 ```
 
 ## Roadmap
