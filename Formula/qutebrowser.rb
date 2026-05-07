@@ -379,8 +379,9 @@ class Qutebrowser < Formula
         - Widevine DRM auto-detection (for Netflix, Spotify, etc.)
         - A .app bundle for Dock/Spotlight integration
 
-      App bundle:
-        #{opt_prefix}/qutebrowser.app
+      App bundle (Spotlight, Launchpad, Raycast):
+        mkdir -p ~/Applications
+        osascript -e 'tell application "Finder" to make alias file to POSIX file "#{opt_prefix}/qutebrowser.app" at POSIX file "'"$HOME"'/Applications"'
 
       Widevine DRM:
         Automatically detected from Brave, Google Chrome, or Chrome Dev.
