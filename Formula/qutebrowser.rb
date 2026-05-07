@@ -11,6 +11,7 @@ class Qutebrowser < Formula
   depends_on :macos
   depends_on "pyqt"
   depends_on "python@3.14"
+  depends_on "qtwebengine"
 
   resource "adblock" do
     url "https://files.pythonhosted.org/packages/f2/62/f77f4ef114a74e15104675a1e0f77302aad72bcc0bfcdda867e4c24f7ffe/adblock-0.6.0.tar.gz"
@@ -67,6 +68,19 @@ class Qutebrowser < Formula
     python3 = "python3.14"
     system libexec/"bin"/python3, "-m", "pip", "install", "--no-deps",
            "--no-build-isolation", "--only-binary=:all:", "adblock==0.6.0"
+
+    # qutebrowser's pakjoy.py looks for QtWebEngineCore resources under
+    # qt_data_path/lib/QtWebEngineCore.framework/Resources, but Homebrew's
+    # qtwebengine doesn't link its framework into share/qt/lib. Replace the
+    # auto-generated entrypoint with a wrapper that sets the env var.
+    resources_path = Formula["qtwebengine"].opt_lib/
+      "QtWebEngineCore.framework/Versions/A/Resources"
+    (bin/"qutebrowser").unlink
+    (bin/"qutebrowser").write <<~BASH
+      #!/bin/bash
+      export QTWEBENGINE_RESOURCES_PATH="#{resources_path}"
+      exec "#{libexec}/bin/qutebrowser" "$@"
+    BASH
   end
 
   def caveats
