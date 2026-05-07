@@ -72,27 +72,324 @@ class Qutebrowser < Formula
     # qutebrowser's pakjoy.py looks for QtWebEngineCore resources under
     # qt_data_path/lib/QtWebEngineCore.framework/Resources, but Homebrew's
     # qtwebengine doesn't link its framework into share/qt/lib. Replace the
-    # auto-generated entrypoint with a wrapper that sets the env var.
-    resources_path = Formula["qtwebengine"].opt_lib/
-      "QtWebEngineCore.framework/Versions/A/Resources"
+    # auto-generated entrypoint with a wrapper that sets the env var and
+    # auto-detects Widevine CDM from installed Chromium-based browsers.
+    qtwe_lib = Formula["qtwebengine"].opt_lib
+    resources_path = qtwe_lib/"QtWebEngineCore.framework/Versions/A/Resources"
     (bin/"qutebrowser").unlink
     (bin/"qutebrowser").write <<~BASH
       #!/bin/bash
       export QTWEBENGINE_RESOURCES_PATH="#{resources_path}"
-      exec "#{libexec}/bin/qutebrowser" "$@"
+
+      # Widevine CDM auto-detection for DRM content (Netflix, Spotify, etc.)
+      # Widevine is proprietary (Google) and cannot be redistributed — it must be
+      # sourced from an installed Chromium-based browser at runtime.
+      WIDEVINE_PATH="${QUTEBROWSER_WIDEVINE_PATH:-}"
+      if [ -z "$WIDEVINE_PATH" ]; then
+        widevine_search_dirs=(
+          "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/WidevineCdm"
+          "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/Current/Libraries/WidevineCdm"
+          "/Applications/Google Chrome Dev.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/Current/Libraries/WidevineCdm"
+          "$HOME/Library/Application Support/Google/Chrome/WidevineCdm"
+          "$HOME/Library/Application Support/Chromium/WidevineCdm"
+        )
+        for search_dir in "${widevine_search_dirs[@]}"; do
+          if [ -d "$search_dir" ]; then
+            found=$(find "$search_dir" -name "libwidevinecdm.dylib" -path "*mac_arm64*" 2>/dev/null | sort -V | tail -1)
+            if [ -n "$found" ]; then
+              WIDEVINE_PATH="$found"
+              break
+            fi
+          fi
+        done
+      fi
+
+      WIDEVINE_FLAGS=()
+      if [ -n "$WIDEVINE_PATH" ]; then
+        WIDEVINE_FLAGS=(--qt-flag "widevine-path=${WIDEVINE_PATH}")
+      fi
+
+      exec "#{libexec}/bin/qutebrowser" "${WIDEVINE_FLAGS[@]}" "$@"
     BASH
+
+    # --- .app bundle ---
+    app_contents = prefix/"qutebrowser.app/Contents"
+    (app_contents/"MacOS").mkpath
+    (app_contents/"Resources").mkpath
+
+    # Custom icon (iOS-style globe design, generated from 1024x1024 PNG)
+    tap_resources = Pathname(__FILE__).dirname.parent/"resources"
+    cp tap_resources/"qutebrowser.icns", app_contents/"Resources/"
+
+    (app_contents/"Info.plist").write <<~XML
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+        <key>CFBundleDevelopmentRegion</key>
+        <string>en</string>
+        <key>CFBundleExecutable</key>
+        <string>qutebrowser</string>
+        <key>CFBundleIconFile</key>
+        <string>qutebrowser</string>
+        <key>CFBundleIdentifier</key>
+        <string>org.qutebrowser.qutebrowser</string>
+        <key>CFBundleInfoDictionaryVersion</key>
+        <string>6.0</string>
+        <key>CFBundleName</key>
+        <string>qutebrowser</string>
+        <key>CFBundlePackageType</key>
+        <string>APPL</string>
+        <key>CFBundleShortVersionString</key>
+        <string>#{version}</string>
+        <key>CFBundleVersion</key>
+        <string>#{version}</string>
+        <key>NSHighResolutionCapable</key>
+        <true/>
+        <key>NSSupportsAutomaticGraphicsSwitching</key>
+        <true/>
+        <key>NSRequiresAquaSystemAppearance</key>
+        <false/>
+        <key>CFBundleURLTypes</key>
+        <array>
+          <dict>
+            <key>CFBundleURLName</key>
+            <string>http(s) URL</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+              <string>http</string>
+              <string>https</string>
+            </array>
+          </dict>
+          <dict>
+            <key>CFBundleURLName</key>
+            <string>local file URL</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+              <string>file</string>
+            </array>
+          </dict>
+        </array>
+        <key>CFBundleDocumentTypes</key>
+        <array>
+          <dict>
+            <key>CFBundleTypeName</key>
+            <string>HTML document</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array><string>public.html</string></array>
+          </dict>
+          <dict>
+            <key>CFBundleTypeName</key>
+            <string>XHTML document</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array><string>public.xhtml</string></array>
+          </dict>
+          <dict>
+            <key>CFBundleTypeName</key>
+            <string>GIF image</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array><string>com.compuserve.gif</string></array>
+          </dict>
+          <dict>
+            <key>CFBundleTypeName</key>
+            <string>JPEG image</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array><string>public.jpeg</string></array>
+          </dict>
+          <dict>
+            <key>CFBundleTypeName</key>
+            <string>PNG image</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array><string>public.png</string></array>
+          </dict>
+          <dict>
+            <key>CFBundleTypeName</key>
+            <string>SVG document</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array><string>public.svg-image</string></array>
+          </dict>
+          <dict>
+            <key>CFBundleTypeName</key>
+            <string>Plain text document</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array><string>public.text</string></array>
+          </dict>
+          <dict>
+            <key>CFBundleTypeName</key>
+            <string>JavaScript script</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array><string>com.netscape.javascript-source</string></array>
+          </dict>
+          <dict>
+            <key>CFBundleTypeName</key>
+            <string>PDF Document</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array><string>com.adobe.pdf</string></array>
+          </dict>
+          <dict>
+            <key>CFBundleTypeName</key>
+            <string>MHTML document</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array><string>org.ietf.mhtml</string></array>
+          </dict>
+          <dict>
+            <key>CFBundleTypeName</key>
+            <string>HTML5 Audio (Ogg)</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array><string>org.xiph.ogg-audio</string></array>
+          </dict>
+          <dict>
+            <key>CFBundleTypeName</key>
+            <string>HTML5 Video (Ogg)</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array><string>org.xiph.ogv</string></array>
+          </dict>
+          <dict>
+            <key>CFBundleTypeName</key>
+            <string>HTML5 Video (WebM)</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array><string>org.webmproject.webm</string></array>
+          </dict>
+          <dict>
+            <key>CFBundleTypeName</key>
+            <string>WebP image</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array><string>org.webmproject.webp</string></array>
+          </dict>
+        </array>
+        <key>UTImportedTypeDeclarations</key>
+        <array>
+          <dict>
+            <key>UTTypeConformsTo</key>
+            <array>
+              <string>public.data</string>
+              <string>public.content</string>
+            </array>
+            <key>UTTypeDescription</key>
+            <string>MIME HTML document</string>
+            <key>UTTypeIdentifier</key>
+            <string>org.ietf.mhtml</string>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+              <key>com.apple.ostype</key>
+              <string>MHTM</string>
+              <key>public.filename-extension</key>
+              <array>
+                <string>mht</string>
+                <string>mhtml</string>
+              </array>
+              <key>public.mime-type</key>
+              <array>
+                <string>multipart/related</string>
+                <string>application/x-mimearchive</string>
+              </array>
+            </dict>
+          </dict>
+          <dict>
+            <key>UTTypeConformsTo</key>
+            <array><string>public.audio</string></array>
+            <key>UTTypeDescription</key>
+            <string>Ogg Audio</string>
+            <key>UTTypeIdentifier</key>
+            <string>org.xiph.ogg-audio</string>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+              <key>public.filename-extension</key>
+              <array>
+                <string>ogg</string>
+                <string>oga</string>
+              </array>
+              <key>public.mime-type</key>
+              <array><string>audio/ogg</string></array>
+            </dict>
+          </dict>
+          <dict>
+            <key>UTTypeConformsTo</key>
+            <array><string>public.movie</string></array>
+            <key>UTTypeDescription</key>
+            <string>Ogg Video</string>
+            <key>UTTypeIdentifier</key>
+            <string>org.xiph.ogv</string>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+              <key>public.filename-extension</key>
+              <array>
+                <string>ogm</string>
+                <string>ogv</string>
+              </array>
+              <key>public.mime-type</key>
+              <array><string>video/ogg</string></array>
+            </dict>
+          </dict>
+        </array>
+        <key>NSCameraUsageDescription</key>
+        <string>A website in qutebrowser wants to use the camera.</string>
+        <key>NSMicrophoneUsageDescription</key>
+        <string>A website in qutebrowser wants to use your microphone.</string>
+        <key>NSLocationUsageDescription</key>
+        <string>A website in qutebrowser wants to use your location information.</string>
+        <key>NSBluetoothAlwaysUsageDescription</key>
+        <string>A website in qutebrowser wants to access Bluetooth.</string>
+      </dict>
+      </plist>
+    XML
+
+    (app_contents/"MacOS/qutebrowser").write <<~BASH
+      #!/bin/bash
+      exec "#{opt_bin}/qutebrowser" "$@"
+    BASH
+    (app_contents/"MacOS/qutebrowser").chmod 0755
+
+    # Ad-hoc codesign so macOS treats it as a proper app bundle
+    system "codesign", "--force", "--deep", "--sign", "-", prefix/"qutebrowser.app"
   end
 
   def caveats
     <<~EOS
-      This formula installs qutebrowser as a CLI command.
-      It uses Homebrew's Qt WebEngine which includes H.264/H.265 codec support.
+      qutebrowser has been installed with:
+        - H.264/H.265 codec support (via Homebrew's Qt WebEngine)
+        - Widevine DRM auto-detection (for Netflix, Spotify, etc.)
+        - A .app bundle for Dock/Spotlight integration
 
-      To launch:
-        qutebrowser
+      App bundle:
+        #{opt_prefix}/qutebrowser.app
 
-      Note: This is a CLI-only install. A .app bundle for Dock/Spotlight
-      integration is planned for a future release.
+      Widevine DRM:
+        Automatically detected from Brave, Google Chrome, or Chrome Dev.
+        To specify manually:
+          export QUTEBROWSER_WIDEVINE_PATH="/path/to/libwidevinecdm.dylib"
+
+        If no Chromium-based browser is installed, download the CDM from
+        a Chrome .dmg and place libwidevinecdm.dylib where the auto-detection
+        can find it (~/Library/Application Support/Google/Chrome/WidevineCdm/).
     EOS
   end
 
